@@ -65,9 +65,14 @@ class MultiExchange{
   /** @return how many instruments are registered */
   size_t size() const{ return exchanges_.size(); }
 
-  /** @return true if the symbol is known */
+  /**
+   * Checks whether an instrument is registered.
+   *
+   * @param symbol the instrument ticker to check
+   * @return true if the symbol is known, false otherwise
+   */
   bool contains(const string& symbol) const{ return exchanges_.contains(symbol); }
 
  private:
-  map<string, Exchange> exchanges_;
+  map<string, Exchange> exchanges_;  /**< registered exchanges indexed by instrument symbol */
 };

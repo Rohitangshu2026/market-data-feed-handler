@@ -77,13 +77,18 @@ class MultiFeedHandler{
   /** @return how many instruments are managed */
   size_t size() const{ return handlers_.size(); }
 
-  /** @return true if the symbol is known */
+  /**
+   * Checks whether an instrument is managed.
+   *
+   * @param symbol the instrument ticker to check
+   * @return true if the symbol is registered, false otherwise
+   */
   bool contains(const string& symbol) const{ return handlers_.contains(symbol); }
 
   /** @return how many events arrived for unknown symbols */
   uint64_t unknown_symbols() const{ return unknown_symbols_; }
 
  private:
-  map<string, FeedHandler> handlers_;
-  uint64_t unknown_symbols_ = 0;
+  map<string, FeedHandler> handlers_;  /**< per-symbol independent feed handler state machines */
+  uint64_t unknown_symbols_ = 0;       /**< telemetry counter of rejected unrecognized events */
 };

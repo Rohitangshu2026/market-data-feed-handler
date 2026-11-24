@@ -51,9 +51,14 @@ class MultiLossyLink{
    */
   vector<InstrumentEvent> flush();
 
-  /** @return true if the symbol is known */
+  /**
+   * Checks whether an instrument has a lossy link configured.
+   *
+   * @param symbol the instrument ticker to check
+   * @return true if the symbol has an active link, false otherwise
+   */
   bool contains(const string& symbol) const{ return links_.contains(symbol); }
 
  private:
-  map<string, LossyLink> links_;
+  map<string, LossyLink> links_;  /**< independent lossy links per instrument symbol */
 };

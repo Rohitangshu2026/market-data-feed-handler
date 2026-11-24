@@ -942,24 +942,27 @@ bool lamport(const Lamport& l){
   return lamport_never_misorders;
 }
 
+/** Configuration settings for the multi-instrument scenario. */
 struct Multi{
-  uint64_t events;
-  uint64_t seed;
-  double loss;
-  double duplicate;
-  double reorder;
-  size_t history;
-  size_t orders;
-  size_t window;
-  Recovery recovery;
-  uint64_t show;
-  bool quiet;
+  uint64_t events;       /**< events each exchange publishes */
+  uint64_t seed;         /**< base random seed */
+  double loss;           /**< packet loss probability */
+  double duplicate;      /**< packet duplication probability */
+  double reorder;        /**< packet reordering probability */
+  size_t history;        /**< past events retained per exchange */
+  size_t orders;         /**< maximum resting orders per book */
+  size_t window;         /**< gap arrivals waited before recovery */
+  Recovery recovery;     /**< first-hole vs every-hole recovery policy */
+  uint64_t show;         /**< events to journal at stream boundaries */
+  bool quiet;            /**< omit individual arrival logging */
 
+  /** @return formatted summary string of settings */
   string summary() const{
     return "seed " + to_string(seed) + ", window " + to_string(window) + ", " + describe(recovery);
   }
 };
 
+/** Reads multi-instrument settings interactively or from command line. */
 Multi read_multi(Settings& in){
   Multi m{};
   m.events = in.integer("events", "How many events should each instrument publish?", 300, 10, max_events);
@@ -989,6 +992,7 @@ Multi read_multi(Settings& in){
   return m;
 }
 
+/** Runs the multi-instrument scenario across multiple independent books. */
 bool multi_scenario(const Multi& m){
   const vector<string> symbols = {"RELIANCE", "TCS", "INFY"};
   cout << "== multi: " << symbols.size() << " instruments (RELIANCE, TCS, INFY), "

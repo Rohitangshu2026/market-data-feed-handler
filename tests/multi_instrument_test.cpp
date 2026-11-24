@@ -39,7 +39,7 @@ void expect_same_multi_books(const MultiFeedHandler& handler, const MultiExchang
   }
 }
 
-/** 1. Creating multiple instruments */
+/** @test T-MI-01 (R12) Creating multiple instruments with unique configurations and rejecting invalid symbols. */
 TEST(MultiInstrument, CreateMultipleInstruments) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 101, 100);
@@ -63,7 +63,7 @@ TEST(MultiInstrument, CreateMultipleInstruments) {
   EXPECT_FALSE(handler.contains("WIPRO"));
 }
 
-/** 2. Independent order books for different instruments */
+/** @test T-MI-02 (R12) Each instrument maintains its own order book matching its authoritative truth book. */
 TEST(MultiInstrument, IndependentOrderBooks) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 10, 100);
@@ -90,7 +90,7 @@ TEST(MultiInstrument, IndependentOrderBooks) {
   EXPECT_NE(handler.book("RELIANCE").fingerprint(), handler.book("TCS").fingerprint());
 }
 
-/** 3. Routing an event to the correct instrument */
+/** @test T-MI-03 (R12) Arriving events are routed to the specific instrument handler without modifying others. */
 TEST(MultiInstrument, EventRouting) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 100);
@@ -110,7 +110,7 @@ TEST(MultiInstrument, EventRouting) {
   EXPECT_EQ(handler.handler("TCS").last_applied(), 1u);
 }
 
-/** 4. Ensuring one instrument's price levels never mix with another's */
+/** @test T-MI-04 (R12) Orders and price levels belonging to one instrument never bleed into another book. */
 TEST(MultiInstrument, PriceLevelsNeverMix) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 111, 200);
@@ -134,7 +134,7 @@ TEST(MultiInstrument, PriceLevelsNeverMix) {
   EXPECT_EQ(handler.book("TCS"), exchange.exchange("TCS").book());
 }
 
-/** 5. Independent sequence numbering */
+/** @test T-MI-05 (R12) Each instrument maintains independent sequence numbers starting at 1 despite interleaving. */
 TEST(MultiInstrument, IndependentSequenceNumbering) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 100);
@@ -170,7 +170,7 @@ TEST(MultiInstrument, IndependentSequenceNumbering) {
   EXPECT_EQ(handler.handler("INFY").last_applied(), 1u);
 }
 
-/** 6. A gap in one instrument while another continues normally */
+/** @test T-MI-06 (R12) A gap and buffer wait in one instrument does not stall or affect other instruments. */
 TEST(MultiInstrument, GapInOneInstrumentDoesNotAffectOthers) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 10, 100);
@@ -203,7 +203,7 @@ TEST(MultiInstrument, GapInOneInstrumentDoesNotAffectOthers) {
   EXPECT_EQ(handler.handler("TCS").last_applied(), 2u);
 }
 
-/** 7. Retransmission recovery for one instrument */
+/** @test T-MI-07 (R12) Retransmissions recover missing ranges only for the requesting instrument. */
 TEST(MultiInstrument, RetransmissionRecoveryForOneInstrument) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 100);
@@ -245,7 +245,7 @@ TEST(MultiInstrument, RetransmissionRecoveryForOneInstrument) {
   expect_same_multi_books(handler, exchange);
 }
 
-/** 8. Snapshot fallback for one instrument */
+/** @test T-MI-08 (R12) Snapshot fallback recovers an instrument whose gap exceeds history without disrupting others. */
 TEST(MultiInstrument, SnapshotFallbackForOneInstrument) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 5); // history only 5
@@ -280,7 +280,7 @@ TEST(MultiInstrument, SnapshotFallbackForOneInstrument) {
   expect_same_multi_books(handler, exchange);
 }
 
-/** 9. Unknown instrument handling */
+/** @test T-MI-09 (R12) Events and heartbeats for unrecognized instrument symbols are rejected safely. */
 TEST(MultiInstrument, UnknownInstrumentHandling) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 100);
@@ -297,7 +297,7 @@ TEST(MultiInstrument, UnknownInstrumentHandling) {
   EXPECT_THROW(handler.book("UNKNOWN_SYM"), out_of_range);
 }
 
-/** 10. Multi-instrument with full lossy link across multiple symbols */
+/** @test T-MI-10 (R12) Multi-instrument simulation under interleaved packet loss, reordering, and duplicate delivery. */
 TEST(MultiInstrument, FullSimulationAcrossSymbols) {
   MultiExchange exchange;
   exchange.add_instrument("RELIANCE", 1, 500);
