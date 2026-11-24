@@ -948,6 +948,7 @@ struct Multi{
   double loss;
   size_t window;
   Recovery recovery;
+  bool quiet;
 };
 
 Multi read_multi(Settings& in){
@@ -960,6 +961,10 @@ Multi read_multi(Settings& in){
                          "every", {"first", "every"}) == "first"
                    ? Recovery::first_hole
                    : Recovery::every_hole;
+  m.quiet = in.flag("quiet") || m.events_per_symbol > trace_limit;
+  if (in.flag("quiet")){
+    in.note("--quiet");
+  }
   return m;
 }
 
@@ -968,6 +973,62 @@ bool multi_scenario(const Multi& m){
   cout << "== multi: " << symbols.size() << " instruments (RELIANCE, TCS, INFY), "
        << grouped(m.events_per_symbol) << " events each, " << percent(m.loss)
        << " loss, seed " << m.seed << " ==\n";
+
+  // --- Step 1: Showcase targeted scenario transitions ---
+  cout << "  -- Phase 1: Showcasing specific event behaviors and handling --\n";
+  {
+    MultiExchange ex;
+    ex.add_instrument("RELIANCE", 101, 100);
+    ex.add_instrument("TCS", 102, 100);
+    MultiFeedHandler h(ex, 3);
+
+    // 1. Interleaving without false gaps
+    InstrumentEvent r1 = ex.next("RELIANCE");
+    InstrumentEvent t1 = ex.next("TCS");
+    InstrumentEvent r2 = ex.next("RELIANCE");
+
+    cout << "  [Interleaving]      Publish RELIANCE seq " << r1.event.seq
+         << ", TCS seq " << t1.event.seq << ", RELIANCE seq " << r2.event.seq << "\n";
+    h.on_event(r1);
+    cout << "                      -> RELIANCE seq 1 applied (last_applied=" << h.handler("RELIANCE").last_applied() << ")\n";
+    h.on_event(t1);
+    cout << "                      -> TCS seq 1 applied (last_applied=" << h.handler("TCS").last_applied() << ", RELIANCE unaffected)\n";
+    h.on_event(r2);
+    cout << "                      -> RELIANCE seq 2 applied (no false gap, gaps=" << h.handler("RELIANCE").stats().gaps << ")\n";
+
+    // 2. Injected gap on one symbol while another proceeds smoothly
+    InstrumentEvent r3 = ex.next("RELIANCE"); // lost
+    InstrumentEvent r4 = ex.next("RELIANCE");
+    InstrumentEvent t2 = ex.next("TCS");
+    InstrumentEvent t3 = ex.next("TCS");
+
+    cout << "  [Isolated Gap]      Lose RELIANCE seq 3, arrive seq 4; arrive TCS seq 2 and 3\n";
+    h.on_event(t2);
+    h.on_event(t3);
+    h.on_event(r4); // early arrival for RELIANCE
+    cout << "                      -> TCS seqs 2-3 applied normally (last_applied=" << h.handler("TCS").last_applied() << ")\n";
+    cout << "                      -> RELIANCE seq 4 arrives early: buffered (buffered="
+         << h.handler("RELIANCE").buffered() << ", gap detected=" << h.handler("RELIANCE").stats().gaps << ")\n";
+
+    // Wait out window for RELIANCE and recover
+    for (int i = 0; i < 3; ++i) {
+      h.on_event(ex.next("RELIANCE"));
+    }
+    cout << "                      -> Window elapsed: RELIANCE retransmits seq 3, book caught up to seq "
+         << h.handler("RELIANCE").last_applied() << " (retransmits="
+         << h.handler("RELIANCE").stats().retransmits << ")\n";
+
+    // 3. Unknown symbol safety check
+    InstrumentEvent bogus{"WIPRO", Event{1, EventType::add, 999, Side::bid, 500, 10}};
+    cout << "  [Unknown Symbol]    Arrive event for unregistered symbol 'WIPRO'\n";
+    const bool accepted = h.on_event(bogus);
+    cout << "                      -> Accepted: " << (accepted ? "yes" : "no")
+         << " (safely rejected, unknown_symbols=" << h.unknown_symbols() << ")\n";
+  }
+
+  // --- Step 2: Full parallel stream through lossy link ---
+  cout << "  -- Phase 2: Streaming " << grouped(m.events_per_symbol)
+       << " interleaved events across all symbols through lossy links --\n";
 
   MultiExchange exchange;
   MultiLossyLink link;
@@ -978,6 +1039,8 @@ bool multi_scenario(const Multi& m){
 
     LinkConfig config;
     config.loss = m.loss;
+    config.reorder = 0.05;
+    config.duplicate = 0.02;
     config.seed = sym_seed ^ link_salt;
     link.add_instrument(symbols[i], config);
   }
@@ -1007,10 +1070,15 @@ bool multi_scenario(const Multi& m){
     const bool matched = h.book() == e.book() && h.last_applied() == e.last_seq() && h.stats().rejected == 0;
     all_matched = all_matched && matched;
 
+    const size_t orders = h.book().orders().size();
     cout << "  " << left << setw(10) << sym << right
          << ": book at seq " << grouped(h.last_applied())
-         << ", recovered " << h.stats().recovered << " by retransmit ("
-         << h.stats().retransmits << " calls), " << h.stats().snapshots << " snapshots"
+         << ", " << orders << " orders, best bid " << describe(h.book().best_bid())
+         << ", best ask " << describe(h.book().best_ask())
+         << "\n             gaps=" << h.stats().gaps
+         << ", recovered=" << h.stats().recovered
+         << " (" << h.stats().retransmits << " retransmits), "
+         << h.stats().duplicates << " dups dropped"
          << (matched ? " -> matches exchange book" : " -> DIFFERS") << "\n";
   }
 
