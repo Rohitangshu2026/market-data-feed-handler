@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# API documentation from the Javadoc-style comments: run `doxygen` here, or
+# `cmake --build build --target docs`, and open docs/api/html/index.html.
+
+PROJECT_NAME           = "Market data feed handler"
+PROJECT_NUMBER         = 1.0.0
+PROJECT_BRIEF          = "A market data feed handler that rebuilds the order book through loss, duplication and reordering"
+OUTPUT_DIRECTORY       = docs/api
+INPUT                  = README.md docs/REPORT.md docs/TESTING.md docs/PERFORMANCE.md docs/DEMO.md docs/decisions.md docs/ai-use.md src apps tests
+FILE_PATTERNS          = *.hpp *.cpp *.md
+RECURSIVE              = YES
+EXCLUDE                = src/feed_handler
+USE_MDFILE_AS_MAINPAGE = README.md
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_ANON_NSPACES   = YES
+JAVADOC_AUTOBRIEF      = YES
+DISTRIBUTE_GROUP_DOC   = YES
+SOURCE_BROWSER         = YES
+STRIP_FROM_PATH        = .
+FULL_PATH_NAMES        = YES
+# Each TEST(Suite, Name) becomes a documented function Suite_Name, so the
+# @test comments above the tests build the Test List page.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = "TEST(a,b)=void a##_##b()"
+HTML_FOOTER            = doxygen-footer.html
+GENERATE_LATEX         = NO
+HAVE_DOT               = NO
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_LOGFILE           = docs/api/warnings.txt
