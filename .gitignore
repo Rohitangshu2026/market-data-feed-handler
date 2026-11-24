@@ -1,5 +1,11 @@
-/build/
+/build*/
 /results/
-/docs/
+/docs/api/
 .DS_Store
 .claude/settings.local.json
+# Left over from earlier versions and from tooling; not part of the project.
+/legacy/
+/src/feed_handler/
+/.agents/
+/.claude/
+/skills-lock.json

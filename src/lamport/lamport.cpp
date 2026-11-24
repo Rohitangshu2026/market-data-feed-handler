@@ -1,17 +1,22 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Rohitangshu Bose
+
 #include "lamport/lamport.hpp"
 
-#include <tuple>
+#include<stdexcept>
+#include<tuple>
 
 using namespace std;
 
 namespace{
 
-constexpr int64_t event_interval_us = 1'000;  // the exchange publishes one event per millisecond
+constexpr int64_t event_interval_us = 1'000;  /**< the exchange publishes one event per millisecond */
 constexpr size_t reorder_window = 3;
 
 }  // namespace
 
-HandlerInstance::HandlerInstance(int id, int64_t clock_offset_us, const Exchange& exchange) : id_(id), clock_offset_us_(clock_offset_us), handler_(exchange, reorder_window){}
+HandlerInstance::HandlerInstance(int id, int64_t clock_offset_us, const Exchange& exchange)
+    : id_(id), clock_offset_us_(clock_offset_us), handler_(exchange, reorder_window){}
 
 void HandlerInstance::deliver(const Event& event, int64_t now_us){
   const uint64_t before = handler_.last_applied();
@@ -58,6 +63,12 @@ size_t count_order_violations(const vector<LogEntry>& merged){
 }
 
 LamportDemoResult run_lamport_demo(int64_t skew_us, int64_t handoff_latency_us, size_t events, uint64_t seed){
+  if (events < 2){
+    throw invalid_argument("the handoff needs at least 2 events, one for each instance");
+  }
+  if (handoff_latency_us < 0){
+    throw invalid_argument("the handoff message cannot arrive before it is sent");
+  }
   Exchange exchange(seed, events);
   HandlerInstance first(0, skew_us, exchange);  // its clock runs skew_us ahead
   HandlerInstance second(1, 0, exchange);

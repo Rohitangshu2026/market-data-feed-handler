@@ -1,18 +1,30 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Rohitangshu Bose
+
 #include "exchange/exchange.hpp"
 
-#include <stdexcept>
+#include<stdexcept>
 
 using namespace std;
 
 namespace{
 
 constexpr int64_t mid_price = 10'000;
-// Bids rest up to `band` ticks below the mid and asks up to `band` above it,
-// so the book never crosses and the exchange never has to match orders.
+/** Bids rest up to `band` ticks below the mid and asks up to `band` above it,
+    so the book never crosses and the exchange never has to match orders. */
 constexpr int64_t band = 50;
-constexpr size_t max_resting_orders = 200;
 
 }  // namespace
+
+Exchange::Exchange(uint64_t seed, size_t history, size_t max_orders)
+    : random_(seed), history_limit_(history), max_orders_(max_orders){
+  if (history == 0){
+    throw invalid_argument("the exchange must keep at least 1 event for retransmission");
+  }
+  if (max_orders == 0){
+    throw invalid_argument("the exchange's book must hold at least 1 order");
+  }
+}
 
 Event Exchange::next(){
   Event event = generate();
@@ -27,12 +39,12 @@ Event Exchange::next(){
   return event;
 }
 
-// Picks a random action that is valid for the current book: an add 40% of the
-// time (while the book is not full), otherwise a modify, remove or execute of
-// a random resting order.
+/** Picks a random action that is valid for the current book: an add 40% of the
+    time (while the book is not full), otherwise a modify, remove or execute of
+    a random resting order. */
 Event Exchange::generate(){
   Event event;
-  if (resting_.empty() || (resting_.size() < max_resting_orders && random_below(100) < 40)){
+  if (resting_.empty() || (resting_.size() < max_orders_ && random_below(100) < 40)){
     event.type = EventType::add;
     event.order_id = next_order_id_++;
     event.side = random_below(2) == 0 ? Side::bid : Side::ask;
