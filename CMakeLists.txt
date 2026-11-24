@@ -24,7 +24,10 @@ add_library(market_data_feed
   src/handler/feed_handler.cpp
   src/lamport/lamport.cpp
   src/cli/options.cpp
-  src/stats/stats.cpp)
+  src/stats/stats.cpp
+  src/multi/multi_exchange.cpp
+  src/multi/multi_feed_handler.cpp
+  src/multi/multi_lossy_link.cpp)
 target_include_directories(market_data_feed PUBLIC src)
 target_compile_options(market_data_feed PUBLIC -Wall -Wextra -Wpedantic $<$<BOOL:${FEED_WERROR}>:-Werror>)
 if(FEED_SANITIZE)
@@ -69,7 +72,8 @@ add_executable(feed_tests
   tests/property_test.cpp
   tests/lamport_test.cpp
   tests/cli_test.cpp
-  tests/stats_test.cpp)
+  tests/stats_test.cpp
+  tests/multi_instrument_test.cpp)
 target_link_libraries(feed_tests PRIVATE market_data_feed GTest::gtest_main)
 gtest_discover_tests(feed_tests PROPERTIES LABELS unit DISCOVERY_TIMEOUT 60)
 
