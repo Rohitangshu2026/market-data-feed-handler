@@ -107,6 +107,8 @@ expect(e2e.demo.outage 0 "too old to retransmit: snapshot" "${never}" feed_demo 
 expect(e2e.demo.random 0 "matches the exchange's own book" "${never}"
        feed_demo random --events 2e5 --loss 30% --seed 42 --recovery first --window 0)
 expect(e2e.demo.lamport 0 "passes the 10 ms handoff" "${never}" feed_demo lamport --latency-ms 10 --skews-ms 0,10,20)
+expect(e2e.demo.multi 0 "All 3 instruments reconstructed correctly with zero cross-contamination" "${never}"
+       feed_demo multi --events 300 --loss 15% --seed 123)
 expect(e2e.demo.bad_number 2 "--events: .abc. is not a whole number" "${never}" feed_demo random --events abc)
 expect(e2e.demo.bad_chance 2 "--loss: .1.5. is not a chance from 0 to 1" "${never}" feed_demo random --loss 1.5)
 expect(e2e.demo.out_of_range 2 "--window: 2000000 is out of range" "${never}" feed_demo random --window 2000000)

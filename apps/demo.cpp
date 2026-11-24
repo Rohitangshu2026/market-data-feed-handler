@@ -34,6 +34,9 @@
 #include "exchange/exchange.hpp"
 #include "handler/feed_handler.hpp"
 #include "lamport/lamport.hpp"
+#include "multi/multi_exchange.hpp"
+#include "multi/multi_feed_handler.hpp"
+#include "multi/multi_lossy_link.hpp"
 #include "network/lossy_link.hpp"
 
 using namespace std;
@@ -54,8 +57,9 @@ scenarios
   tail      the last events are lost; the exchange's heartbeat exposes them
   outage    a gap older than the exchange's history, recovered by a snapshot
   random    random damage at any scale, timed, with both books' fingerprints
+  multi     multiple instruments partitioned with independent order books and recovery
   lamport   two handler instances with skewed clocks hand the stream over
-  all       burst, reorder, tail, outage, random and lamport in turn
+  all       burst, reorder, tail, outage, random, multi and lamport in turn
 
 options (defaults in brackets)
   --seed N          seed for the exchange and the link       [a new random one]
@@ -938,6 +942,84 @@ bool lamport(const Lamport& l){
   return lamport_never_misorders;
 }
 
+struct Multi{
+  uint64_t events_per_symbol;
+  uint64_t seed;
+  double loss;
+  size_t window;
+  Recovery recovery;
+};
+
+Multi read_multi(Settings& in){
+  Multi m{};
+  m.events_per_symbol = in.integer("events", "How many events should each instrument publish?", 300, 10, 10'000'000);
+  m.seed = in.seed();
+  m.loss = in.probability("loss", "Chance an event is lost, e.g. 10% or 0.10?", 0.10);
+  m.window = in.integer("window", "Reorder window: arrivals a gap may wait before it counts as lost?", 3, 0, 1'000'000);
+  m.recovery = in.choice("recovery", "Recovery: first (one hole at a time) or every (all holes at once)?",
+                         "every", {"first", "every"}) == "first"
+                   ? Recovery::first_hole
+                   : Recovery::every_hole;
+  return m;
+}
+
+bool multi_scenario(const Multi& m){
+  const vector<string> symbols = {"RELIANCE", "TCS", "INFY"};
+  cout << "== multi: " << symbols.size() << " instruments (RELIANCE, TCS, INFY), "
+       << grouped(m.events_per_symbol) << " events each, " << percent(m.loss)
+       << " loss, seed " << m.seed << " ==\n";
+
+  MultiExchange exchange;
+  MultiLossyLink link;
+
+  for (size_t i = 0; i < symbols.size(); ++i){
+    const uint64_t sym_seed = m.seed + i * 1'000 + 1;
+    exchange.add_instrument(symbols[i], sym_seed, 500);
+
+    LinkConfig config;
+    config.loss = m.loss;
+    config.seed = sym_seed ^ link_salt;
+    link.add_instrument(symbols[i], config);
+  }
+
+  MultiFeedHandler handler(exchange, m.window, m.recovery);
+
+  for (uint64_t step = 0; step < m.events_per_symbol; ++step){
+    for (const string& sym : symbols){
+      for (const auto& ev : link.send(exchange.next(sym))){
+        handler.on_event(ev);
+      }
+    }
+  }
+
+  for (const auto& ev : link.flush()){
+    handler.on_event(ev);
+  }
+
+  for (const string& sym : symbols){
+    handler.on_heartbeat(sym, exchange.exchange(sym).last_seq());
+  }
+
+  bool all_matched = true;
+  for (const string& sym : symbols){
+    const FeedHandler& h = handler.handler(sym);
+    const Exchange& e = exchange.exchange(sym);
+    const bool matched = h.book() == e.book() && h.last_applied() == e.last_seq() && h.stats().rejected == 0;
+    all_matched = all_matched && matched;
+
+    cout << "  " << left << setw(10) << sym << right
+         << ": book at seq " << grouped(h.last_applied())
+         << ", recovered " << h.stats().recovered << " by retransmit ("
+         << h.stats().retransmits << " calls), " << h.stats().snapshots << " snapshots"
+         << (matched ? " -> matches exchange book" : " -> DIFFERS") << "\n";
+  }
+
+  if (all_matched){
+    cout << "  All " << symbols.size() << " instruments reconstructed correctly with zero cross-contamination.\n";
+  }
+  return all_matched;
+}
+
 const vector<pair<string, string>> scenarios = {
     {"watch", "a live stream with heavy loss"},
     {"burst", "a run of lost events, recovered by one retransmission"},
@@ -945,6 +1027,7 @@ const vector<pair<string, string>> scenarios = {
     {"tail", "the last events lost; the heartbeat finds them"},
     {"outage", "a gap older than the exchange's history: a snapshot"},
     {"random", "any damage you like, at any scale, timed"},
+    {"multi", "multiple instruments partitioned with independent order books"},
     {"lamport", "two handlers with skewed clocks hand the stream over"},
     {"all", "every scenario but watch, one after another, with their defaults"},
 };
@@ -960,8 +1043,9 @@ Ready prepare(const string& scenario, Settings& in){
   if (scenario == "tail") return [t = read_tail(in)]{ return tail(t); };
   if (scenario == "outage") return [o = read_outage(in)]{ return outage(o); };
   if (scenario == "random") return [r = read_random(in)]{ return random_damage(r); };
+  if (scenario == "multi") return [m = read_multi(in)]{ return multi_scenario(m); };
   if (scenario == "lamport") return [l = read_lamport(in)]{ return lamport(l); };
-  throw UsageError("unknown scenario \"" + scenario + "\"; choose watch, burst, reorder, tail, outage, random, lamport or all");
+  throw UsageError("unknown scenario \"" + scenario + "\"; choose watch, burst, reorder, tail, outage, random, multi, lamport or all");
 }
 
 /** Runs a prepared scenario, then prints the command that replays it. */
@@ -975,7 +1059,7 @@ bool run_one(const string& scenario, const Ready& ready, const Settings& in){
 bool run_all(const Options& options){
   vector<pair<string, Settings>> settings;
   vector<Ready> ready;
-  for (const string scenario : {"burst", "reorder", "tail", "outage", "random", "lamport"}){
+  for (const string scenario : {"burst", "reorder", "tail", "outage", "random", "multi", "lamport"}){
     settings.emplace_back(scenario, Settings(options, false));
     ready.push_back(prepare(scenario, settings.back().second));
   }
