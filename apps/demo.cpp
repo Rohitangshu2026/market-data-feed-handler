@@ -943,25 +943,46 @@ bool lamport(const Lamport& l){
 }
 
 struct Multi{
-  uint64_t events_per_symbol;
+  uint64_t events;
   uint64_t seed;
   double loss;
+  double duplicate;
+  double reorder;
+  size_t history;
+  size_t orders;
   size_t window;
   Recovery recovery;
+  uint64_t show;
   bool quiet;
+
+  string summary() const{
+    return "seed " + to_string(seed) + ", window " + to_string(window) + ", " + describe(recovery);
+  }
 };
 
 Multi read_multi(Settings& in){
   Multi m{};
-  m.events_per_symbol = in.integer("events", "How many events should each instrument publish?", 300, 10, 10'000'000);
+  m.events = in.integer("events", "How many events should each instrument publish?", 300, 10, max_events);
   m.seed = in.seed();
   m.loss = in.probability("loss", "Chance an event is lost, e.g. 10% or 0.10?", 0.10);
-  m.window = in.integer("window", "Reorder window: arrivals a gap may wait before it counts as lost?", 3, 0, 1'000'000);
+  m.duplicate = in.probability("dup", "Chance an event arrives twice?", 0.01);
+  m.reorder = in.probability("reorder", "Chance an event arrives one place late?", 0.02);
+
+  in.silently(!in.yes("Change the handler's settings too (reorder window, recovery, history)?", false));
+  m.window = in.integer("window", "Reorder window: how many arrivals may a gap wait before it counts as lost?", 3,
+                        0, 1'000'000);
   m.recovery = in.choice("recovery", "Recovery: first (one hole at a time) or every (all holes at once)?",
                          "every", {"first", "every"}) == "first"
                    ? Recovery::first_hole
                    : Recovery::every_hole;
-  m.quiet = in.flag("quiet") || m.events_per_symbol > trace_limit;
+  m.history = in.integer("history", "How many past events does each exchange keep, to retransmit?", 500,
+                         1, max_events);
+  m.orders = in.integer("orders", "At most how many orders may rest in each book?", 200, 1, 1'000'000);
+  in.silently(false);
+
+  m.show = in.integer("show", "How many events to show at each end of each stream, and what happened to each?",
+                      3, 0, 1'000'000);
+  m.quiet = in.flag("quiet") || m.events > trace_limit;
   if (in.flag("quiet")){
     in.note("--quiet");
   }
@@ -971,119 +992,107 @@ Multi read_multi(Settings& in){
 bool multi_scenario(const Multi& m){
   const vector<string> symbols = {"RELIANCE", "TCS", "INFY"};
   cout << "== multi: " << symbols.size() << " instruments (RELIANCE, TCS, INFY), "
-       << grouped(m.events_per_symbol) << " events each, " << percent(m.loss)
-       << " loss, seed " << m.seed << " ==\n";
-
-  // --- Step 1: Showcase targeted scenario transitions ---
-  cout << "  -- Phase 1: Showcasing specific event behaviors and handling --\n";
-  {
-    MultiExchange ex;
-    ex.add_instrument("RELIANCE", 101, 100);
-    ex.add_instrument("TCS", 102, 100);
-    MultiFeedHandler h(ex, 3);
-
-    // 1. Interleaving without false gaps
-    InstrumentEvent r1 = ex.next("RELIANCE");
-    InstrumentEvent t1 = ex.next("TCS");
-    InstrumentEvent r2 = ex.next("RELIANCE");
-
-    cout << "  [Interleaving]      Publish RELIANCE seq " << r1.event.seq
-         << ", TCS seq " << t1.event.seq << ", RELIANCE seq " << r2.event.seq << "\n";
-    h.on_event(r1);
-    cout << "                      -> RELIANCE seq 1 applied (last_applied=" << h.handler("RELIANCE").last_applied() << ")\n";
-    h.on_event(t1);
-    cout << "                      -> TCS seq 1 applied (last_applied=" << h.handler("TCS").last_applied() << ", RELIANCE unaffected)\n";
-    h.on_event(r2);
-    cout << "                      -> RELIANCE seq 2 applied (no false gap, gaps=" << h.handler("RELIANCE").stats().gaps << ")\n";
-
-    // 2. Injected gap on one symbol while another proceeds smoothly
-    InstrumentEvent r3 = ex.next("RELIANCE"); // lost
-    InstrumentEvent r4 = ex.next("RELIANCE");
-    InstrumentEvent t2 = ex.next("TCS");
-    InstrumentEvent t3 = ex.next("TCS");
-
-    cout << "  [Isolated Gap]      Lose RELIANCE seq 3, arrive seq 4; arrive TCS seq 2 and 3\n";
-    h.on_event(t2);
-    h.on_event(t3);
-    h.on_event(r4); // early arrival for RELIANCE
-    cout << "                      -> TCS seqs 2-3 applied normally (last_applied=" << h.handler("TCS").last_applied() << ")\n";
-    cout << "                      -> RELIANCE seq 4 arrives early: buffered (buffered="
-         << h.handler("RELIANCE").buffered() << ", gap detected=" << h.handler("RELIANCE").stats().gaps << ")\n";
-
-    // Wait out window for RELIANCE and recover
-    for (int i = 0; i < 3; ++i) {
-      h.on_event(ex.next("RELIANCE"));
-    }
-    cout << "                      -> Window elapsed: RELIANCE retransmits seq 3, book caught up to seq "
-         << h.handler("RELIANCE").last_applied() << " (retransmits="
-         << h.handler("RELIANCE").stats().retransmits << ")\n";
-
-    // 3. Unknown symbol safety check
-    InstrumentEvent bogus{"WIPRO", Event{1, EventType::add, 999, Side::bid, 500, 10}};
-    cout << "  [Unknown Symbol]    Arrive event for unregistered symbol 'WIPRO'\n";
-    const bool accepted = h.on_event(bogus);
-    cout << "                      -> Accepted: " << (accepted ? "yes" : "no")
-         << " (safely rejected, unknown_symbols=" << h.unknown_symbols() << ")\n";
-  }
-
-  // --- Step 2: Full parallel stream through lossy link ---
-  cout << "  -- Phase 2: Streaming " << grouped(m.events_per_symbol)
-       << " interleaved events across all symbols through lossy links --\n";
+       << grouped(m.events) << " events each, " << percent(m.loss) << " lost, "
+       << percent(m.duplicate) << " duplicated, " << percent(m.reorder) << " reordered ("
+       << m.summary() << ") ==\n";
 
   MultiExchange exchange;
   MultiLossyLink link;
 
   for (size_t i = 0; i < symbols.size(); ++i){
     const uint64_t sym_seed = m.seed + i * 1'000 + 1;
-    exchange.add_instrument(symbols[i], sym_seed, 500);
+    exchange.add_instrument(symbols[i], sym_seed, m.history, m.orders);
 
     LinkConfig config;
     config.loss = m.loss;
-    config.reorder = 0.05;
-    config.duplicate = 0.02;
+    config.duplicate = m.duplicate;
+    config.reorder = m.reorder;
     config.seed = sym_seed ^ link_salt;
     link.add_instrument(symbols[i], config);
   }
 
   MultiFeedHandler handler(exchange, m.window, m.recovery);
 
-  for (uint64_t step = 0; step < m.events_per_symbol; ++step){
+  map<string, Journal> journals;
+  for (const string& sym : symbols){
+    journals.emplace(sym, Journal(m.events, m.show));
+  }
+
+  // Interleave publishing across instruments
+  for (uint64_t step = 0; step < m.events; ++step){
     for (const string& sym : symbols){
-      for (const auto& ev : link.send(exchange.next(sym))){
+      const InstrumentEvent published = exchange.next(sym);
+      const vector<InstrumentEvent> arrived = link.send(published);
+
+      vector<Event> inner_arrived;
+      inner_arrived.reserve(arrived.size());
+      for (const auto& a : arrived){
+        inner_arrived.push_back(a.event);
+      }
+      journals.at(sym).sent(published.event, inner_arrived, arrived.empty());
+
+      for (const auto& ev : arrived){
+        const FeedHandler& h = handler.handler(sym);
+        const HandlerStats before = h.stats();
+        const uint64_t applied_before = h.last_applied();
+        const size_t buffered_before = h.buffered();
+
         handler.on_event(ev);
+
+        journals.at(sym).reached(handler.handler(sym), ev.event.seq, before, applied_before, buffered_before);
       }
     }
   }
 
+  // Flush remaining delayed events
   for (const auto& ev : link.flush()){
+    const string& sym = ev.symbol;
+    const FeedHandler& h = handler.handler(sym);
+    const HandlerStats before = h.stats();
+    const uint64_t applied_before = h.last_applied();
+    const size_t buffered_before = h.buffered();
+
     handler.on_event(ev);
+
+    journals.at(sym).reached(handler.handler(sym), ev.event.seq, before, applied_before, buffered_before);
   }
 
-  for (const string& sym : symbols){
-    handler.on_heartbeat(sym, exchange.exchange(sym).last_seq());
-  }
-
-  bool all_matched = true;
+  // Send heartbeat per instrument
   for (const string& sym : symbols){
     const FeedHandler& h = handler.handler(sym);
+    const HandlerStats before = h.stats();
+    const uint64_t applied_before = h.last_applied();
+
+    handler.on_heartbeat(sym, exchange.exchange(sym).last_seq());
+
+    journals.at(sym).reached(handler.handler(sym), 0, before, applied_before, 0);
+  }
+
+  // Print results and event tables per symbol
+  bool all_matched = true;
+  for (const string& sym : symbols){
+    cout << "\n  [" << sym << "]\n";
+    journals.at(sym).print();
+
+    const FeedHandler& h = handler.handler(sym);
     const Exchange& e = exchange.exchange(sym);
-    const bool matched = h.book() == e.book() && h.last_applied() == e.last_seq() && h.stats().rejected == 0;
-    all_matched = all_matched && matched;
+    const bool same = h.book() == e.book() && h.last_applied() == e.last_seq() && h.stats().rejected == 0;
+    all_matched = all_matched && same;
 
     const size_t orders = h.book().orders().size();
-    cout << "  " << left << setw(10) << sym << right
-         << ": book at seq " << grouped(h.last_applied())
-         << ", " << orders << " orders, best bid " << describe(h.book().best_bid())
-         << ", best ask " << describe(h.book().best_ask())
-         << "\n             gaps=" << h.stats().gaps
-         << ", recovered=" << h.stats().recovered
-         << " (" << h.stats().retransmits << " retransmits), "
-         << h.stats().duplicates << " dups dropped"
-         << (matched ? " -> matches exchange book" : " -> DIFFERS") << "\n";
+    cout << "  result: book at seq " << grouped(h.last_applied()) << ", " << orders
+         << (orders == 1 ? " order" : " orders") << ", best bid " << describe(h.book().best_bid())
+         << ", best ask " << describe(h.book().best_ask()) << "\n";
+    if (same){
+      cout << "  fingerprint " << hex(h.book().fingerprint()) << " on both sides: matches the exchange's own book\n";
+    } else{
+      cout << "  DIFFERS: handler " << hex(h.book().fingerprint()) << ", exchange "
+           << hex(e.book().fingerprint()) << " (seq " << h.last_applied() << " vs " << e.last_seq() << ")\n";
+    }
   }
 
   if (all_matched){
-    cout << "  All " << symbols.size() << " instruments reconstructed correctly with zero cross-contamination.\n";
+    cout << "\n  All " << symbols.size() << " instruments reconstructed correctly with zero cross-contamination.\n";
   }
   return all_matched;
 }
