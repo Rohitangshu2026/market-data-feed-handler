@@ -1,0 +1,13 @@
+== lamport: instance 0 hands the stream to instance 1; the handoff message takes 5 ms (200 events, seed 1) ==
+  instance 0's clock runs ahead by    updates   misordered by physical time   by Lamport time
+                                 0 ms       196                              0                 0
+                                 2 ms       196                              0                 0
+                                 4 ms       196                              0                 0
+                                 5 ms       196                              0                 0
+                                 6 ms       196                              1                 0
+                                 8 ms       196                              3                 0
+                                10 ms       196                              5                 0
+                                20 ms       196                             15                 0
+  Physical time misorders once the skew passes the 5 ms handoff; Lamport time never does.
+  replay: feed_demo lamport --events 200 --seed 1 --latency-ms 5 --skews-ms 0,2,4,5,6,8,10,20
+

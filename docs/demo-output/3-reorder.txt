@@ -1,0 +1,28 @@
+== reorder: 20% of events arrive one place late and 15% arrive twice; none is lost (20 events, seed 2, window 3, every-hole recovery) ==
+  seq    1 arrives: applied, book at seq 1
+  seq    2 arrives: applied, book at seq 2
+  seq    3 arrives: applied, book at seq 3
+  seq    4 arrives: applied, book at seq 4
+  seq    5 arrives: applied, book at seq 5
+  seq    6 arrives: applied, book at seq 6
+  seq    7 arrives: applied, book at seq 7
+  seq    8 arrives: applied, book at seq 8
+  seq    9 arrives: applied, book at seq 9
+  seq   11 arrives: early, buffered: gap opens, seq 10 missing
+  seq   10 arrives: late, fills the gap: applied, plus 1 buffered event, book now at seq 11
+  seq   12 arrives: applied, book at seq 12
+  seq   14 arrives: early, buffered: gap opens, seq 13 missing
+  seq   13 arrives: late, fills the gap: applied, plus 1 buffered event, book now at seq 14
+  seq   15 arrives: applied, book at seq 15
+  seq   16 arrives: applied, book at seq 16
+  seq   17 arrives: applied, book at seq 17
+  seq   17 arrives: duplicate, dropped
+  seq   18 arrives: applied, book at seq 18
+  seq   19 arrives: applied, book at seq 19
+  seq   20 arrives: applied, book at seq 20
+  heartbeat: the exchange is at seq 20: nothing missing
+  (0 retransmissions needed)
+  result: book at seq 20, 1 order, best bid 9955 x 66, best ask none
+  fingerprint 0xedd6559ff91d7e77 on both sides: matches the exchange's own book
+  replay: feed_demo reorder --events 20 --seed 2 --reorder 20% --dup 15% --window 3 --recovery every --history 1000 --orders 200 --show 0
+

@@ -1,0 +1,41 @@
+A feed handler rebuilds an exchange's order book from a stream of events that a lossy
+link damages, and checks the result against the exchange's own book. Answer each
+question, or press Enter for the value in [brackets]; q quits.
+
+Scenarios:
+  1  watch     a live stream with heavy loss
+  2  burst     a run of lost events, recovered by one retransmission
+  3  reorder   late and doubled events, absorbed with no recovery
+  4  tail      the last events lost; the heartbeat finds them
+  5  outage    a gap older than the exchange's history: a snapshot
+  6  random    any damage you like, at any scale, timed
+  7  lamport   two handlers with skewed clocks hand the stream over
+  8  all       every scenario but watch, one after another, with their defaults
+  Which scenario? A number or a name [random] random
+  How many events should the exchange publish? [1,000,000] 50000
+  Seed? Any number replays a run exactly; Enter picks a random one [random] 658947
+  Chance an event is lost, e.g. 20% or 0.2? [20%] 30%
+  Chance an event arrives twice? [1%]
+  Chance an event arrives one place late? [2%]
+  Change the handler's settings too (reorder window, recovery, book size)? [no]
+  How many events to show at each end of the stream, and what happened to each? [5] 4
+
+== random: 50,000 events, 30% lost, 1% duplicated, 2% reordered (seed 658947, window 3, every-hole recovery) ==
+  14,881 events lost on the link (29.8%); 5,740 gaps; 10,520 retransmissions brought back 14,951 events, 0 snapshots; 380 duplicates dropped
+  50,000 events in 0.01 s: 3.7 million a second through exchange, link and handler
+  the first 4 and the last 4 of 50,000 events, and what happened to each:
+          seq  event                                 on the link               in the handler
+            1  add order 1: ask 77 at 10,034         arrived                   applied at once
+            2  add order 2: ask 4 at 10,030          arrived                   applied at once
+            3  add order 3: ask 55 at 10,048         lost                      recovered by retransmission
+            4  add order 4: bid 38 at 9,988          lost                      recovered by retransmission
+          ...  49,992 more
+       49,997  add order 13,435: bid 59 at 9,950     lost                      recovered after the heartbeat
+       49,998  execute 23 of order 13,281            arrived                   waited in the buffer, then applied
+       49,999  remove order 13,288                   arrived                   waited in the buffer, then applied
+       50,000  add order 13,436: ask 75 at 10,015    lost                      recovered after the heartbeat
+  result: book at seq 50,000, 200 orders, best bid 9999 x 60, best ask 10001 x 86
+  fingerprint 0x9cebd27445b9e9a3 on both sides: matches the exchange's own book
+  replay: feed_demo random --events 50000 --seed 658947 --loss 30% --dup 1% --reorder 2% --window 3 --recovery every --history 10000 --orders 200 --show 4
+
+  Run another scenario? [yes] no

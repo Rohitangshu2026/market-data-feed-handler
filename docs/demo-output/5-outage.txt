@@ -1,0 +1,10 @@
+== outage: seqs 201-600 are lost; the exchange keeps only its last 100 events (1,000 events, seed 4, window 3, every-hole recovery) ==
+  seq  601 arrives: early, buffered: gap opens, seqs 201-600 missing
+  seq  602 arrives: early, buffered (2 waiting)
+  seq  603 arrives: early, buffered (3 waiting)
+  seq  604 arrives: seqs 201-600 still missing, too old to retransmit: snapshot, book now at seq 604
+  heartbeat: the exchange is at seq 1000: nothing missing
+  result: book at seq 1,000, 194 orders, best bid 9999 x 212, best ask 10001 x 19
+  fingerprint 0x45b4f94f3f9277bc on both sides: matches the exchange's own book
+  replay: feed_demo outage --events 1000 --seed 4 --gap 201-600 --history 100 --window 3 --recovery every --orders 200 --show 0
+
